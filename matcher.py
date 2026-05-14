@@ -1,8 +1,20 @@
-import anthropic
-import base64
-import json
+import torch
+import numpy as np
 from PIL import Image
-import io
+from transformers import CLIPProcessor, CLIPModel
+
+ANIMALS = [
+    "lion", "tiger", "leopard", "cheetah", "jaguar",
+    "wolf", "fox", "coyote", "husky", "golden retriever",
+    "poodle", "bulldog", "german shepherd", "labrador",
+    "chimpanzee", "gorilla", "orangutan", "baboon",
+    "polar bear", "brown bear", "giant panda", "koala",
+    "horse", "zebra", "giraffe", "elephant", "rhinoceros",
+    "hippo", "deer", "moose", "ram", "goat",
+    "rabbit", "hamster", "squirrel", "raccoon", "skunk",
+    "owl", "eagle", "parrot", "penguin", "flamingo",
+    "dolphin", "seal", "otter", "cat", "lynx",
+]
 
 ANIMAL_EMOJI = {
     "lion": "🦁", "tiger": "🐯", "leopard": "🐆", "cheetah": "🐆", "jaguar": "🐆",
@@ -15,61 +27,46 @@ ANIMAL_EMOJI = {
     "rabbit": "🐰", "hamster": "🐹", "squirrel": "🐿️", "raccoon": "🦝", "skunk": "🦨",
     "owl": "🦉", "eagle": "🦅", "parrot": "🦜", "penguin": "🐧", "flamingo": "🦩",
     "dolphin": "🐬", "seal": "🦭", "otter": "🦦", "cat": "🐱", "lynx": "🐱",
-    "dog": "🐶", "bear": "🐻", "monkey": "🐒", "snake": "🐍", "crocodile": "🐊",
 }
 
-PROMPT = """Look at this photo of a person and determine which animal they most resemble based on their facial features, expressions, and overall appearance. Be playful and creative.
-
-Respond ONLY with a valid JSON object in this exact format:
-{
-  "top_match": "animal name",
-  "reason": "one fun sentence explaining why",
-  "runners_up": [
-    {"animal": "animal name", "score": 0.0},
-    {"animal": "animal name", "score": 0.0},
-    {"animal": "animal name", "score": 0.0},
-    {"animal": "animal name", "score": 0.0}
-  ]
-}
-
-Use lowercase animal names. Scores for runners_up should be between 0 and 1, with the top match implicitly at 1.0."""
+_model = None
+_processor = None
+_animal_embeddings = None
 
 
-def _image_to_base64(image: Image.Image) -> str:
-    buf = io.BytesIO()
-    image.save(buf, format="JPEG")
-    return base64.standard_b64encode(buf.getvalue()).decode("utf-8")
+def _load_model():
+    global _model, _processor, _animal_embeddings
+    if _model is not None:
+        return
+
+    _model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+    _processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+    _model.eval()
+
+    prompts = [f"a close-up photo of a {a}" for a in ANIMALS]
+    inputs = _processor(text=prompts, return_tensors="pt", padding=True)
+    with torch.no_grad():
+        text_features = _model.get_text_features(**inputs)
+    _animal_embeddings = text_features / text_features.norm(dim=-1, keepdim=True)
 
 
-def match(image: Image.Image, api_key: str) -> dict:
-    client = anthropic.Anthropic(api_key=api_key)
+def match(image: Image.Image, top_k: int = 5) -> list[dict]:
+    _load_model()
 
-    response = client.messages.create(
-        model="claude-opus-4-7",
-        max_tokens=512,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/jpeg",
-                            "data": _image_to_base64(image),
-                        },
-                    },
-                    {"type": "text", "text": PROMPT},
-                ],
-            }
-        ],
-    )
+    inputs = _processor(images=image, return_tensors="pt")
+    with torch.no_grad():
+        image_features = _model.get_image_features(**inputs)
+    image_features = image_features / image_features.norm(dim=-1, keepdim=True)
 
-    data = json.loads(response.content[0].text)
-    top = data["top_match"].lower()
-    data["top_emoji"] = ANIMAL_EMOJI.get(top, "🐾")
+    similarities = (image_features @ _animal_embeddings.T).squeeze(0)
+    scores = similarities.softmax(dim=0).numpy()
 
-    for r in data.get("runners_up", []):
-        r["emoji"] = ANIMAL_EMOJI.get(r["animal"].lower(), "🐾")
-
-    return data
+    top_indices = np.argsort(scores)[::-1][:top_k]
+    return [
+        {
+            "animal": ANIMALS[i],
+            "emoji": ANIMAL_EMOJI.get(ANIMALS[i], "🐾"),
+            "score": float(scores[i]),
+        }
+        for i in top_indices
+    ]

@@ -1,12 +1,14 @@
 # Face to Animal 🐾
 
-Take a selfie and discover which animal you resemble most, powered by the [Claude Vision API](https://www.anthropic.com/claude) (Anthropic).
+Take a selfie and discover which animal you resemble most, powered by [CLIP](https://openai.com/research/clip) running locally via PyTorch.
 
 ## How it works
 
-1. Your selfie is sent to Claude's vision model.
-2. Claude analyzes your facial features and returns the closest animal match with a fun explanation.
-3. Top 5 matches are displayed with scores.
+1. Your selfie is encoded into an embedding vector using the CLIP vision encoder.
+2. That vector is compared (cosine similarity) against text embeddings for ~50 animals.
+3. The closest match wins.
+
+No image is sent to any external server — everything runs locally.
 
 ## Setup
 
@@ -22,10 +24,11 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Enter your [Anthropic API key](https://console.anthropic.com/) in the sidebar when the app opens.
+The first run downloads the CLIP model (~340 MB) from Hugging Face and caches it locally.
 
 ## Stack
 
 - [Streamlit](https://streamlit.io) — UI + camera input
-- [Claude Vision API](https://docs.anthropic.com/en/docs/build-with-claude/vision) — animal matching
+- [PyTorch](https://pytorch.org) — tensor ops & inference
+- [Hugging Face Transformers](https://huggingface.co/docs/transformers) — CLIP model
 - [Pillow](https://python-pillow.org) — image handling

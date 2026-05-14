@@ -1,6 +1,6 @@
 # Face to Animal 🐾
 
-Take a selfie and discover which animal you resemble most, powered by [CLIP](https://openai.com/research/clip) running locally via PyTorch.
+Take a selfie and discover which animal you resemble most, powered by [CLIP](https://huggingface.co/openai/clip-vit-base-patch32) running locally via PyTorch.
 
 ## How it works
 

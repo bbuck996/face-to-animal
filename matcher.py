@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 import numpy as np
 from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
@@ -47,7 +48,9 @@ def _load_model():
     inputs = _processor(text=prompts, return_tensors="pt", padding=True)
     with torch.no_grad():
         text_features = _model.get_text_features(**inputs)
-    _animal_embeddings = text_features / text_features.norm(dim=-1, keepdim=True)
+    if not isinstance(text_features, torch.Tensor):
+        text_features = text_features.text_embeds
+    _animal_embeddings = F.normalize(text_features, dim=-1)
 
 
 def match(image: Image.Image, top_k: int = 5) -> list[dict]:
@@ -56,7 +59,9 @@ def match(image: Image.Image, top_k: int = 5) -> list[dict]:
     inputs = _processor(images=image, return_tensors="pt")
     with torch.no_grad():
         image_features = _model.get_image_features(**inputs)
-    image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+    if not isinstance(image_features, torch.Tensor):
+        image_features = image_features.image_embeds
+    image_features = F.normalize(image_features, dim=-1)
 
     similarities = (image_features @ _animal_embeddings.T).squeeze(0)
     scores = similarities.softmax(dim=0).numpy()

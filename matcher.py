@@ -47,9 +47,8 @@ def _load_model():
     prompts = [f"a close-up photo of a {a}" for a in ANIMALS]
     inputs = _processor(text=prompts, return_tensors="pt", padding=True)
     with torch.no_grad():
-        text_features = _model.get_text_features(**inputs)
-    if not isinstance(text_features, torch.Tensor):
-        text_features = text_features.text_embeds
+        text_out = _model.text_model(**inputs)
+        text_features = _model.text_projection(text_out.pooler_output)
     _animal_embeddings = F.normalize(text_features, dim=-1)
 
 
@@ -58,9 +57,8 @@ def match(image: Image.Image, top_k: int = 5) -> list[dict]:
 
     inputs = _processor(images=image, return_tensors="pt")
     with torch.no_grad():
-        image_features = _model.get_image_features(**inputs)
-    if not isinstance(image_features, torch.Tensor):
-        image_features = image_features.image_embeds
+        vision_out = _model.vision_model(**inputs)
+        image_features = _model.visual_projection(vision_out.pooler_output)
     image_features = F.normalize(image_features, dim=-1)
 
     similarities = (image_features @ _animal_embeddings.T).squeeze(0)
